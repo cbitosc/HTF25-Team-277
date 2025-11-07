@@ -1,0 +1,1007 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Realtime Board</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;font-family:"Segoe UI",Roboto,Arial,Helvetica,sans-serif;background:#e9eef4;color:#111;}
+.topbar{display:flex;gap:8px;padding:8px 12px;background:linear-gradient(90deg,#004e92,#000428);color:#fff;align-items:center;height:56px;box-shadow:0 3px 10px rgba(0,0,0,0.3);position:fixed;top:0;left:0;right:0;z-index:10;}
+.topbar input,.topbar button{padding:8px 10px;border-radius:6px;border:none;background:rgba(255,255,255,0.1);color:#fff;outline:none;transition:all 0.3s;font-size:14px;}
+.topbar input::placeholder{color:#ddd;}
+.topbar input:focus{background:rgba(255,255,255,0.25);box-shadow:0 0 4px #38bdf8;}
+.topbar button{cursor:pointer;font-weight:600;}
+.topbar button:hover{background:rgba(255,255,255,0.3);}
+.topbar button:disabled{opacity:0.5;cursor:not-allowed;}
+#status{margin-left:12px;font-weight:500;color:#ffecb3;}
+#container{display:grid;grid-template-columns:1fr 320px;height:calc(100% - 56px);margin-top:56px;}
+#canvasWrap{position:relative;background:linear-gradient(135deg,#f7f8fa,#dfe9f3);}
+#myCanvas{width:100%;height:100%;display:block;cursor:crosshair;background:#fff;}
+.panel{padding:16px;background:linear-gradient(180deg,#1e293b,#334155);color:#f1f5f9;border-left:2px solid #0f172a;overflow:auto;height:100%;}
+.control{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;background:#475569;border-radius:10px;padding:12px;box-shadow:0 2px 6px rgba(0,0,0,0.25);}
+label{display:flex;justify-content:space-between;align-items:center;font-weight:500;color:#f8fafc;}
+input[type="color"]{width:60px;height:30px;border:none;border-radius:6px;cursor:pointer;}
+input[type="range"]{flex:1;margin-left:10px;accent-color:#0ea5e9;}
+.notesBox{width:100%;height:120px;padding:8px;border-radius:6px;border:none;font-family:inherit;resize:none;background:#e2e8f0;color:#000;}
+.notesBox:focus{outline:none;box-shadow:0 0 4px #38bdf8;}
+#sendNote, #uploadImageBtn{background:#0ea5e9;color:#fff;border:none;padding:8px;border-radius:6px;cursor:pointer;transition:background 0.3s;font-weight:600;}
+#sendNote:hover, #uploadImageBtn:hover{background:#0284c7;}
+#eraserBtn, #textBtn{background:#10b981;color:#fff;border:none;padding:8px;border-radius:6px;cursor:pointer;transition:background 0.3s;font-weight:600;}
+#eraserBtn:hover, #textBtn:hover{background:#059669;}
+#eraserBtn.active, #textBtn.active {background: #dc2626;}
+#eraserBtn.active:hover, #textBtn.active:hover {background: #b91c1c;}
+.text-format button {background:#3b82f6;min-width: 32px; padding: 4px 6px; font-weight: bold;}
+.text-format button:hover {background:#2563eb;}
+h4{margin-top:8px;margin-bottom:8px;color:#38bdf8;}
+.usersList{list-style:none;padding:0;margin:0;}
+.userItem{padding:8px;border-radius:8px;background:#f8fafc;color:#111;margin-bottom:8px;border:1px solid #cbd5e1;transition:transform 0.2s,background 0.3s;}
+.userItem:hover{transform:translateX(4px);background:#e2e8f0;}
+.cursorDot{position:absolute;width:12px;height:12px;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);z-index:20;border:2px solid #fff;box-shadow:0 0 6px rgba(255,255,255,0.5);}
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-thumb{background:#475569;border-radius:8px;}
+::-webkit-scrollbar-thumb:hover{background:#64748b;}
+#voiceStatus{color: #4ade80;font-weight: bold;}
+#placementStatus{color: #ffecb3;font-weight: 500;font-size: 12px;margin-top: -5px;}
+.canvas-input-overlay{
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 100; 
+    border: 2px dashed #0ea5e9;
+    padding: 2px;
+    background: rgba(255, 255, 255, 0.9);
+}
+.canvas-input-overlay:focus {
+    outline: none;
+    border: 2px solid #0ea5e9;
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <input id="groupInput" placeholder="Group ID">
+  <input id="nameInput" placeholder="Your name">
+  <button id="joinBtn">Join</button>
+  <button id="leaveBtn" disabled>Leave</button>
+  <span id="status" style="color:#fff">Disconnected</span>
+</div>
+<div id="container">
+  <div id="canvasWrap">
+    <canvas id="myCanvas"></canvas>
+  </div>
+  <div class="panel">
+    <div class="control">
+      <label>Color <input type="color" id="colorPicker" value="#000000"></label>
+      <label>Thickness <input type="range" id="thickness" min="1" max="40" value="4"></label>
+      <label><input type="checkbox" id="showCursors" checked> Show cursors</label>
+      <button id="eraserBtn">Eraser</button>
+      <button id="textBtn">Text Box</button>
+    </div>
+    <div class="control text-format">
+      <div>Text Format</div>
+      <button onclick="formatText('bold')" title="Bold (Ctrl+B)">B</button>
+      <button onclick="formatText('italic')" title="Italic (Ctrl+I)">I</button>
+      <button onclick="formatText('underline')" title="Underline (Ctrl+U)">U</button>
+    </div>
+    <div class="control">
+      <div>Voice Channel</div>
+      <button id="joinVoiceBtn" disabled>Join Voice</button>
+      <button id="leaveVoiceBtn" disabled>Leave Voice</button>
+      <div id="voiceStatus">Off</div>
+      <audio id="remoteAudio" autoplay></audio>
+    </div>
+    <div class="control">
+      <div>Image Upload</div>
+      <input type="file" id="imageInput" accept="image/*">
+      <button id="uploadImageBtn">Place Image</button>
+      <div id="placementStatus"></div>
+    </div>
+    <div class="control">
+      <div>Notes</div>
+      <textarea id="notes" class="notesBox" placeholder="Type a note and press Send"></textarea>
+      <button id="sendNote">Send Note</button>
+    </div>
+    <div>
+      <h4>Users in group</h4>
+      <ul id="users" class="usersList"></ul>
+    </div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+const groupInput = document.getElementById('groupInput');
+const nameInput = document.getElementById('nameInput');
+const joinBtn = document.getElementById('joinBtn');
+const leaveBtn = document.getElementById('leaveBtn');
+const statusSpan = document.getElementById('status');
+const colorPicker = document.getElementById('colorPicker');
+const thickness = document.getElementById('thickness');
+const notesEl = document.getElementById('notes');
+const sendNoteBtn = document.getElementById('sendNote');
+const usersList = document.getElementById('users');
+const showCursors = document.getElementById('showCursors');
+const joinVoiceBtn = document.getElementById('joinVoiceBtn');
+const leaveVoiceBtn = document.getElementById('leaveVoiceBtn');
+const voiceStatus = document.getElementById('voiceStatus');
+const remoteAudio = document.getElementById('remoteAudio');
+const imageInput = document.getElementById('imageInput');
+const uploadImageBtn = document.getElementById('uploadImageBtn');
+const placementStatus = document.getElementById('placementStatus');
+const eraserBtn = document.getElementById('eraserBtn');
+const textBtn = document.getElementById('textBtn');
+const canvasWrap = document.getElementById('canvasWrap');
+let socket = null;
+let drawing = false;
+let last = {x:0,y:0};
+let cursors = {};
+let username='', grpId='';
+const peerConnections = {};
+let localStream = null;
+const iceServers = {'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }]};
+let drawingHistory = [];
+let placedImages = [];
+let placedTexts = [];
+let isErasing = false;
+let isTextMode = false;
+let selectedImage = null;
+let selectedText = null;
+let isDragging = false;
+let isResizing = false;
+let resizeHandle = null;
+let dragStartX = 0;
+let dragStartY = 0;
+let activeTextInput = null;
+const HANDLE_SIZE = 10;
+const MIN_SIZE = 30;
+const DEFAULT_IMAGE_WIDTH = 200;
+const DEFAULT_IMAGE_HEIGHT = 150;
+const DEFAULT_TEXT_SIZE = 24;
+function formatText(command) {
+    if (activeTextInput) {
+        document.execCommand(command, false, null);
+        activeTextInput.focus();
+        if(selectedText) selectedText.text = activeTextInput.innerHTML;
+        redrawCanvas();
+    }
+}
+function resizeCanvas(){
+  const wrap=document.getElementById('canvasWrap');
+  canvas.width=wrap.clientWidth;
+  canvas.height=wrap.clientHeight;
+  redrawCanvas();
+}
+window.addEventListener('resize',resizeCanvas);
+resizeCanvas();
+function drawLine(x1,y1,x2,y2,color,w, isEraser=false){
+  ctx.lineCap='round';
+  ctx.lineJoin='round';
+  ctx.lineWidth=w;
+  if (isEraser) {
+    ctx.strokeStyle='white';
+    ctx.globalCompositeOperation = 'destination-out';
+  } else {
+    ctx.strokeStyle=color;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2,y2);
+  ctx.stroke();
+  ctx.closePath();
+  ctx.globalCompositeOperation = 'source-over';
+}
+function drawText(textObj) {
+    ctx.font = `${textObj.size}px Arial`;
+    ctx.fillStyle = textObj.color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Draw the HTML content directly (requires external library for full HTML rendering, 
+    // but for simplicity, we use innerHTML for preview/manipulation).
+    // For rendering formatted text on canvas, we use a temporary off-screen element 
+    // or draw simple plain text. Since we need formatting, we'll draw simple text 
+    // and rely on the editor for formatting display.
+    ctx.fillText(textObj.text.replace(/<[^>]*>/g, ''), textObj.x, textObj.y);
+}
+function canvasToScreen(x, y) {
+    const rect = canvas.getBoundingClientRect();
+    const cssX = (x / canvas.width) * rect.width;
+    const cssY = (y / canvas.height) * rect.height;
+    return { x: cssX, y: cssY };
+}
+function screenToCanvas(e){
+  const rect=canvas.getBoundingClientRect();
+  return {x:(e.clientX-rect.left)*(canvas.width/rect.width),
+          y:(e.clientY-rect.top)*(canvas.height/rect.height)};
+}
+function redrawCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    placedImages.forEach(imgData => {
+        if (imgData.imageObj && imgData.imageObj.complete) {
+            ctx.drawImage(imgData.imageObj, imgData.x, imgData.y, imgData.width, imgData.height);
+        } else if (imgData.dataUrl) {
+            const img = new Image();
+            img.onload = () => {
+                imgData.imageObj = img;
+                redrawCanvas();
+            };
+            img.src = imgData.dataUrl;
+        }
+        if (selectedImage && selectedImage.id === imgData.id && !activeTextInput) {
+            drawSelectionBox(imgData, imgData.width, imgData.height);
+        }
+    });
+    placedTexts.forEach(textObj => {
+        if (textObj.id !== (selectedText ? selectedText.id : null)) {
+            // For simple canvas drawing of rich HTML, we fall back to simple text
+            ctx.font = `bold ${textObj.size}px Arial`;
+            ctx.fillStyle = textObj.color;
+            ctx.fillText(textObj.text.replace(/<[^>]*>/g, '').substring(0, 30) + '...', textObj.x, textObj.y);
+        }
+        if (selectedText && selectedText.id === textObj.id && !activeTextInput) {
+            drawSelectionBox(textObj, textObj.width, textObj.height);
+        }
+    });
+    drawingHistory.forEach(line => {
+      drawLine(line.x1, line.y1, line.x2, line.y2, line.color, line.width, line.isEraser);
+    });
+}
+function drawSelectionBox(obj, w, h) {
+    ctx.strokeStyle = '#0ea5e9';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.strokeRect(obj.x, obj.y, w, h);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#0ea5e9';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    const handles = [
+        { x: obj.x, y: obj.y },
+        { x: obj.x + w, y: obj.y },
+        { x: obj.x, y: obj.y + h },
+        { x: obj.x + w, y: obj.y + h }
+    ];
+    handles.forEach(h => {
+        ctx.fillRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+        ctx.strokeRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+    });
+}
+function checkHandleHit(p) {
+    let obj = selectedImage || selectedText;
+    if (!obj) return null;
+    let w = obj.width;
+    let h = obj.height;
+    const handles = [
+        { name: 'tl', cursor: 'nwse-resize', x: obj.x, y: obj.y },
+        { name: 'tr', cursor: 'nesw-resize', x: obj.x + w, y: obj.y },
+        { name: 'bl', cursor: 'nesw-resize', x: obj.x, y: obj.y + h },
+        { name: 'br', cursor: 'nwse-resize', x: obj.x + w, y: obj.y + h }
+    ];
+    for (const h of handles) {
+        if (p.x >= h.x - HANDLE_SIZE && p.x <= h.x + HANDLE_SIZE && 
+            p.y >= h.y - HANDLE_SIZE && p.y <= h.y + HANDLE_SIZE) {
+            return h.name;
+        }
+    }
+    return null;
+}
+function checkImageHit(p) {
+    for (let i = placedImages.length - 1; i >= 0; i--) {
+        const img = placedImages[i];
+        if (p.x >= img.x && p.x <= img.x + img.width &&
+            p.y >= img.y && p.y <= img.y + img.height) {
+            return img;
+        }
+    }
+    return null;
+}
+function checkTextHit(p) {
+    for (let i = placedTexts.length - 1; i >= 0; i--) {
+        const textObj = placedTexts[i];
+        if (p.x >= textObj.x && p.x <= textObj.x + textObj.width &&
+            p.y >= textObj.y && p.y <= textObj.y + textObj.height) {
+            return textObj;
+        }
+    }
+    return null;
+}
+function checkDrawingHistoryHit(p) {
+    const ERASE_TOLERANCE = 10;
+    for (let i = drawingHistory.length - 1; i >= 0; i--) {
+        const line = drawingHistory[i];
+        const dx = line.x2 - line.x1;
+        const dy = line.y2 - line.y1;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) {
+            if (Math.hypot(p.x - line.x1, p.y - line.y1) <= line.width / 2 + ERASE_TOLERANCE) {
+                return i;
+            }
+            continue;
+        }
+        const t = ((p.x - line.x1) * dx + (p.y - line.y1) * dy) / lenSq;
+        let closestX, closestY;
+        if (t < 0) {
+            closestX = line.x1;
+            closestY = line.y1;
+        } else if (t > 1) {
+            closestX = line.x2;
+            closestY = line.y2;
+        } else {
+            closestX = line.x1 + t * dx;
+            closestY = line.y1 + t * dy;
+        }
+        const distance = Math.hypot(p.x - closestX, p.y - closestY);
+        if (distance <= line.width / 2 + ERASE_TOLERANCE) {
+            return i;
+        }
+    }
+    return -1;
+}
+function removeActiveTextInput() {
+    if (activeTextInput) {
+        canvasWrap.removeChild(activeTextInput);
+        activeTextInput = null;
+        redrawCanvas();
+        enablePointerHandlers();
+    }
+}
+function enablePointerHandlers() {
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('dblclick', handleCanvasDoubleClick);
+    window.addEventListener('keydown', handleDeleteKey);
+}
+function disablePointerHandlers() {
+    canvas.removeEventListener('pointerdown', handlePointerDown);
+    canvas.removeEventListener('pointermove', handlePointerMove);
+    window.removeEventListener('pointerup', handlePointerUp);
+    canvas.removeEventListener('dblclick', handleCanvasDoubleClick);
+    window.removeEventListener('keydown', handleDeleteKey);
+}
+function handleDeleteKey(e) {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedImage) {
+            e.preventDefault();
+            deleteObject('image', selectedImage.id);
+            selectedImage = null;
+            redrawCanvas();
+        } else if (selectedText) {
+            e.preventDefault();
+            deleteObject('text', selectedText.id);
+            selectedText = null;
+            redrawCanvas();
+        }
+    }
+}
+function deleteObject(type, id) {
+    if (type === 'image') {
+        placedImages = placedImages.filter(img => img.id !== id);
+    } else if (type === 'text') {
+        placedTexts = placedTexts.filter(txt => txt.id !== id);
+    }
+    if(socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'delete_object', objectType: type, id: id }));
+    }
+}
+function handlePointerDown(e){
+  if(activeTextInput) return;
+  if(!socket || socket.readyState !== WebSocket.OPEN) return;
+  const p = screenToCanvas(e);
+  let hitImage = checkImageHit(p);
+  let hitText = checkTextHit(p);
+  if (selectedImage || selectedText) {
+    let obj = selectedImage || selectedText;
+    resizeHandle = checkHandleHit(p);
+    if (resizeHandle) {
+      isResizing = true;
+      dragStartX = p.x;
+      dragStartY = p.y;
+      drawing = false;
+      return;
+    }
+    const hitObj = selectedImage ? hitImage : hitText;
+    if (hitObj && hitObj.id === obj.id) {
+      isDragging = true;
+      dragStartX = p.x - obj.x;
+      dragStartY = p.y - obj.y;
+      drawing = false;
+      return;
+    }
+  }
+  if (isErasing) {
+    let hitIndex = checkDrawingHistoryHit(p);
+    if (hitIndex !== -1) {
+        let linesToRemove = drawingHistory.filter(line => checkDrawingHistoryHit(p) !== -1);
+        linesToRemove.forEach(line => {
+             const index = drawingHistory.indexOf(line);
+             if (index !== -1) drawingHistory.splice(index, 1);
+        });
+        redrawCanvas();
+    }
+  }
+  selectedImage = null;
+  selectedText = null;
+  redrawCanvas();
+  drawing = true;
+  last = p;
+  const color = isErasing ? 'white' : colorPicker.value;
+  const isErase = isErasing;
+  drawLine(p.x, p.y, p.x, p.y, color, +thickness.value, isErase);
+  socket.send(JSON.stringify({
+      type: 'draw',
+      x: p.x,
+      y: p.y,
+      color: color,
+      width: +thickness.value,
+      mode: 'start',
+      isEraser: isErase
+  }));
+}
+function handlePointerMove(e){
+  const p = screenToCanvas(e);
+  let obj = selectedImage || selectedText;
+  if (isDragging && obj) {
+    obj.x = p.x - dragStartX;
+    obj.y = p.y - dragStartY;
+    redrawCanvas();
+  } else if (isResizing && obj) {
+    const dx = p.x - dragStartX;
+    const dy = p.y - dragStartY;
+    let { x, y, width, height } = obj;
+    let newX = x, newY = y, newW = width, newH = height;
+    if (resizeHandle.includes('t')) { newY += dy; newH -= dy; }
+    if (resizeHandle.includes('l')) { newX += dx; newW -= dx; }
+    if (resizeHandle.includes('b')) { newH += dy; }
+    if (resizeHandle.includes('r')) { newW += dx; }
+    if (newW > MIN_SIZE) { obj.width = newW; } else { if (resizeHandle.includes('l')) obj.x = x; }
+    if (newH > MIN_SIZE) { obj.height = newH; } else { if (resizeHandle.includes('t')) obj.y = y; }
+    if (obj.width > MIN_SIZE) { obj.x = newX; }
+    if (obj.height > MIN_SIZE) { obj.y = newY; }
+    dragStartX = p.x;
+    dragStartY = p.y;
+    redrawCanvas();
+  } else if(drawing){
+    if (isErasing) {
+      let hitIndex = checkDrawingHistoryHit(p);
+      if (hitIndex !== -1) {
+          let linesToRemove = drawingHistory.filter(line => checkDrawingHistoryHit(p) !== -1);
+          linesToRemove.forEach(line => {
+              const index = drawingHistory.indexOf(line);
+              if (index !== -1) drawingHistory.splice(index, 1);
+          });
+          redrawCanvas();
+      }
+      drawLine(last.x, last.y, p.x, p.y, 'white', +thickness.value, true);
+    } else {
+      const color = colorPicker.value;
+      drawLine(last.x, last.y, p.x, p.y, color, +thickness.value, false);
+      drawingHistory.push({
+          x1: last.x, y1: last.y, x2: p.x, y2: p.y, 
+          color: color, width: +thickness.value, isEraser: false
+      });
+      if(socket&&socket.readyState===WebSocket.OPEN)
+        socket.send(JSON.stringify({type:'draw',x:p.x,y:p.y,color:color,width:+thickness.value,mode:'draw',isEraser: false}));
+    }
+    last=p;
+  } else if(socket&&socket.readyState===WebSocket.OPEN){
+    let cursor = 'crosshair';
+    const hitHandle = checkHandleHit(p);
+    const hitImage = checkImageHit(p);
+    const hitText = checkTextHit(p);
+    if (selectedImage || selectedText) {
+        if (hitHandle) {
+            cursor = hitHandle.includes('l') && hitHandle.includes('t') || hitHandle.includes('r') && hitHandle.includes('b') ? 'nwse-resize' : 'nesw-resize';
+        } else if (hitImage || hitText) {
+            cursor = 'move';
+        }
+    } else if (isErasing) {
+        cursor = 'cell';
+    } else if (isTextMode) {
+        cursor = 'text';
+    }
+    canvas.style.cursor = cursor;
+    socket.send(JSON.stringify({type:'pointer',x:p.x,y:p.y}));
+  }
+}
+function handlePointerUp(e){
+  if(drawing&&socket&&socket.readyState===WebSocket.OPEN){
+    const p=screenToCanvas(e);
+    if (!isErasing) {
+        const color = colorPicker.value;
+        socket.send(JSON.stringify({
+            type:'draw',
+            x:p.x,
+            y:p.y,
+            color:color,
+            width:+thickness.value,
+            mode:'end',
+            isEraser: false
+        }));
+    }
+  }
+  let obj = selectedImage || selectedText;
+  if ((isDragging || isResizing) && obj && socket && socket.readyState === WebSocket.OPEN) {
+    const updateType = selectedImage ? 'image_update' : 'text_update';
+    socket.send(JSON.stringify({
+        type: updateType,
+        id: obj.id,
+        x: obj.x,
+        y: obj.y,
+        width: obj.width,
+        height: obj.height,
+        ...(selectedText && { html: selectedText.html, size: selectedText.size, color: selectedText.color })
+    }));
+  }
+  isDragging = false;
+  isResizing = false;
+  resizeHandle = null;
+  drawing=false;
+}
+function editSelectedText() {
+    if (!selectedText) return;
+    removeActiveTextInput();
+    disablePointerHandlers();
+    const rect = canvas.getBoundingClientRect();
+    const canvasPos = canvasToScreen(selectedText.x, selectedText.y);
+    const input = document.createElement('div');
+    input.className = 'canvas-input-overlay';
+    input.innerHTML = selectedText.html;
+    input.setAttribute('contenteditable', 'true');
+    input.style.top = `${canvasPos.y}px`;
+    input.style.left = `${canvasPos.x}px`;
+    input.style.width = `${(selectedText.width / canvas.width) * rect.width}px`;
+    input.style.height = `${(selectedText.height / canvas.height) * rect.height}px`;
+    input.style.fontSize = `${(selectedText.size / canvas.height) * rect.height}px`; 
+    input.style.color = selectedText.color;
+    input.style.fontFamily = 'Arial';
+    input.style.lineHeight = '1.2';
+    input.addEventListener('input', () => {
+        selectedText.html = input.innerHTML;
+        selectedText.text = input.textContent;
+        redrawCanvas();
+    });
+    input.addEventListener('blur', () => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            selectedText.color = colorPicker.value;
+            selectedText.size = +thickness.value + 10;
+            socket.send(JSON.stringify({
+                type: 'text_update',
+                id: selectedText.id,
+                html: selectedText.html,
+                text: selectedText.text,
+                x: selectedText.x,
+                y: selectedText.y,
+                width: selectedText.width,
+                height: selectedText.height,
+                size: selectedText.size,
+                color: selectedText.color
+            }));
+        }
+        removeActiveTextInput();
+        enablePointerHandlers();
+    });
+    canvasWrap.appendChild(input);
+    activeTextInput = input;
+    input.focus();
+}
+function handleCanvasDoubleClick(e) {
+    if (activeTextInput) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const p = screenToCanvas(e);
+    const hitImage = checkImageHit(p);
+    const hitText = checkTextHit(p);
+    selectedImage = null;
+    selectedText = null;
+    if (hitImage) {
+        selectedImage = hitImage;
+        disableTools();
+    } else if (hitText) {
+        selectedText = hitText;
+        disableTools();
+        editSelectedText();
+        return;
+    }
+    redrawCanvas();
+}
+function handleCanvasClickForText(e) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const p = screenToCanvas(e);
+    const initialText = "Type Here";
+    const newText = {
+        id: Date.now(),
+        text: initialText,
+        html: initialText,
+        x: p.x,
+        y: p.y,
+        width: 250,
+        height: 100,
+        size: +thickness.value + 10,
+        color: colorPicker.value
+    };
+    placedTexts.push(newText);
+    selectedText = newText;
+    socket.send(JSON.stringify({
+        type: 'text_update',
+        id: newText.id,
+        dataUrl: 'NEW',
+        html: newText.html,
+        text: newText.text,
+        x: newText.x,
+        y: newText.y,
+        width: newText.width,
+        height: newText.height,
+        size: newText.size,
+        color: newText.color
+    }));
+    disableTools();
+    redrawCanvas();
+    editSelectedText();
+    canvas.removeEventListener('click', handleCanvasClickForText);
+}
+enablePointerHandlers();
+function disableTools() {
+    isErasing = false;
+    isTextMode = false;
+    eraserBtn.classList.remove('active');
+    textBtn.classList.remove('active');
+    placementStatus.textContent = '';
+}
+function createCursorEl(name,color){
+  const id=`cursor-${name}`;
+  let el=document.getElementById(id);
+  if(!el){
+    el=document.createElement('div');
+    el.id=id;
+    el.className='cursorDot';
+    el.style.background=color||'#ff0';
+    document.getElementById('canvasWrap').appendChild(el);
+  }
+  return el;
+}
+async function startVoice(peerToConnect = null) {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    voiceStatus.textContent = 'Voice Connected';
+    joinVoiceBtn.disabled = true;
+    leaveVoiceBtn.disabled = false;
+    if (peerToConnect) {
+      createPeerConnection(peerToConnect, true);
+    } else {
+      socket.send(JSON.stringify({ type: 'voice-request' }));
+    }
+  } catch (err) {
+    console.error('Error accessing microphone: ', err);
+    voiceStatus.textContent = 'Mic access denied';
+    joinVoiceBtn.disabled = false;
+    leaveVoiceBtn.disabled = true;
+  }
+}
+function stopVoice() {
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+  voiceStatus.textContent = 'Voice Off';
+  joinVoiceBtn.disabled = false;
+  leaveVoiceBtn.disabled = true;
+  for (const peerName in peerConnections) {
+    peerConnections[peerName].close();
+    delete peerConnections[peerName];
+  }
+  remoteAudio.srcObject = null;
+}
+function createPeerConnection(peerName, isOfferer) {
+  if (peerConnections[peerName]) return;
+  const pc = new RTCPeerConnection(iceServers);
+  peerConnections[peerName] = pc;
+  pc.ontrack = ev => {
+    if (!remoteAudio.srcObject) {
+      remoteAudio.srcObject = ev.streams[0];
+    }
+  };
+  pc.onicecandidate = ev => {
+    if (ev.candidate) {
+      socket.send(JSON.stringify({ 
+        type: 'ice-candidate', 
+        target: peerName, 
+        candidate: ev.candidate 
+      }));
+    }
+  };
+  if (localStream) {
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  }
+  if (isOfferer) {
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.send(JSON.stringify({ 
+          type: 'offer', 
+          target: peerName, 
+          sdp: pc.localDescription 
+        }));
+      } catch (err) {
+        console.error('Error creating offer: ', err);
+      }
+    };
+  }
+}
+async function handleOffer(offer, from) {
+  if (!localStream) {
+    return;
+  }
+  createPeerConnection(from, false);
+  const pc = peerConnections[from];
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.send(JSON.stringify({ 
+      type: 'answer', 
+      target: from, 
+      sdp: pc.localDescription 
+    }));
+  } catch (err) {
+    console.error('Error handling offer: ', err);
+  }
+}
+async function handleAnswer(answer, from) {
+  const pc = peerConnections[from];
+  if (!pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  } catch (err) {
+    console.error('Error handling answer: ', err);
+  }
+}
+async function handleICECandidate(candidate, from) {
+  const pc = peerConnections[from];
+  if (!pc) return;
+  try {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (err) {
+    console.error('Error adding ICE candidate: ', err);
+  }
+}
+function handleVoiceRequest(from) {
+  if (localStream) {
+    createPeerConnection(from, true);
+  }
+}
+function handlePeerLeave(peerName) {
+  const pc = peerConnections[peerName];
+  if (pc) {
+    pc.close();
+    delete peerConnections[peerName];
+  }
+}
+function connectSocket(group,name){
+  username=name;grpId=group;
+  socket=new WebSocket(`ws://192.168.0.102:8000/?grpId=${encodeURIComponent(group)}&username=${encodeURIComponent(name)}`);
+  socket.addEventListener('open',()=>{
+    statusSpan.textContent=`Connected as ${username} to ${grpId}`;
+    joinBtn.disabled=true;leaveBtn.disabled=false;
+    groupInput.disabled=true;nameInput.disabled=true;
+    joinVoiceBtn.disabled = false;
+  });
+  socket.addEventListener('message',ev=>{
+    const data=JSON.parse(ev.data);
+    if(data.type==='offer'){
+        handleOffer(data.sdp, data.from);
+        return;
+    } else if(data.type==='answer'){
+        handleAnswer(data.sdp, data.from);
+        return;
+    } else if(data.type==='ice-candidate'){
+        handleICECandidate(data.candidate, data.from);
+        return;
+    } else if(data.type==='voice-request'){
+        handleVoiceRequest(data.from);
+        return;
+    }
+    if(data.type==='draw'){
+      const isErase = data.isEraser || false;
+      const color = isErase ? 'white' : data.color;
+      if(data.mode==='start'){
+        cursors[data.from]={x:data.x,y:data.y,color:data.color,width:data.width};
+      }else{
+        const prev=cursors[data.from]||{x:data.x,y:data.y};
+        if (!isErase) {
+            drawingHistory.push({
+                x1: prev.x, y1: prev.y, x2: data.x, y2: data.y, 
+                color: color, width: data.width, isEraser: isErase
+            });
+        }
+        redrawCanvas();
+        cursors[data.from]={x:data.x,y:data.y,color:data.color,width:data.width};
+      }
+    }else if(data.type==='pointer'&&showCursors.checked){
+      const el=createCursorEl(data.from,data.color||'#ff0');
+      const rect=canvas.getBoundingClientRect();
+      const cssX=(data.x/canvas.width)*rect.width+rect.left;
+      const cssY=(data.y/canvas.height)*rect.height+rect.top;
+      el.style.left=`${cssX}px`;el.style.top=`${cssY}px`;
+    }else if(data.type==='note'){
+      const note=document.createElement('div');
+      note.className='noteCard';
+      note.innerHTML=`<strong>${data.from}</strong><div>${data.text}</div><small style="color:#888">${new Date().toLocaleTimeString()}</small>`;
+      document.querySelector('.panel').insertBefore(note,document.querySelector('.panel').children[0]);
+    } else if(data.type === 'image_update') {
+        let img = placedImages.find(i => i.id === data.id);
+        if (!img && data.dataUrl) {
+            img = { id: data.id, dataUrl: data.dataUrl, imageObj: new Image() };
+            img.imageObj.onload = () => {
+                img.x = data.x;
+                img.y = data.y;
+                img.width = data.width;
+                img.height = data.height;
+                placedImages.push(img);
+                redrawCanvas();
+            };
+            img.imageObj.src = data.dataUrl;
+        } else if (img) {
+            img.x = data.x;
+            img.y = data.y;
+            img.width = data.width;
+            img.height = data.height;
+            redrawCanvas();
+        }
+    } else if (data.type === 'text_update') {
+        let textObj = placedTexts.find(t => t.id === data.id);
+        if (!textObj && data.dataUrl === 'NEW') {
+            textObj = {
+                id: data.id,
+                text: data.text,
+                html: data.html,
+                x: data.x,
+                y: data.y,
+                width: data.width,
+                height: data.height,
+                size: data.size,
+                color: data.color
+            };
+            placedTexts.push(textObj);
+        } else if (textObj) {
+            textObj.text = data.text;
+            textObj.html = data.html;
+            textObj.x = data.x;
+            textObj.y = data.y;
+            textObj.width = data.width;
+            textObj.height = data.height;
+            textObj.size = data.size;
+            textObj.color = data.color;
+        }
+        redrawCanvas();
+    } else if (data.type === 'delete_object') {
+        if (data.objectType === 'image') {
+            placedImages = placedImages.filter(img => img.id !== data.id);
+            if(selectedImage && selectedImage.id === data.id) selectedImage = null;
+        } else if (data.objectType === 'text') {
+            placedTexts = placedTexts.filter(txt => txt.id !== data.id);
+            if(selectedText && selectedText.id === data.id) selectedText = null;
+        }
+        redrawCanvas();
+    } else if(data.type==='presence'){
+      if(data.action==='join'){
+        const li=document.createElement('li');
+        li.className='userItem';li.textContent=data.username;
+        usersList.appendChild(li);
+        if (localStream) {
+            createPeerConnection(data.username, true);
+        }
+      }else if(data.action==='leave'){
+        Array.from(usersList.children).forEach(li=>{
+          if(li.textContent===data.username)usersList.removeChild(li);
+        });
+        const el=document.getElementById(`cursor-${data.username}`);if(el)el.remove();
+        handlePeerLeave(data.username);
+      }
+    }
+  });
+  socket.addEventListener('close',()=>{
+    statusSpan.textContent='Disconnected';
+    joinBtn.disabled=false;leaveBtn.disabled=true;
+    groupInput.disabled=false;nameInput.disabled=false;
+    joinVoiceBtn.disabled = true;
+    stopVoice();
+  });
+}
+joinBtn.onclick=()=>{
+  const group=groupInput.value.trim()||'group1';
+  const name=nameInput.value.trim()||`user${Math.floor(Math.random()*1000)}`;
+  connectSocket(group,name);
+};
+leaveBtn.onclick=()=>{if(socket)socket.close();};
+sendNoteBtn.onclick=()=>{
+  const text=notesEl.value.trim();
+  if(!text||!socket||socket.readyState!==WebSocket.OPEN)return;
+  socket.send(JSON.stringify({type:'note',text}));
+  notesEl.value='';
+};
+joinVoiceBtn.onclick = () => startVoice();
+leaveVoiceBtn.onclick = () => stopVoice();
+eraserBtn.onclick = () => {
+    selectedImage = null;
+    selectedText = null;
+    removeActiveTextInput();
+    isErasing = !isErasing;
+    isTextMode = false;
+    if (isErasing) {
+        eraserBtn.classList.add('active');
+        textBtn.classList.remove('active');
+    } else {
+        eraserBtn.classList.remove('active');
+    }
+    redrawCanvas();
+};
+textBtn.onclick = () => {
+    selectedImage = null;
+    selectedText = null;
+    removeActiveTextInput();
+    isTextMode = !isTextMode;
+    isErasing = false;
+    if (isTextMode) {
+        textBtn.classList.add('active');
+        eraserBtn.classList.remove('active');
+        disablePointerHandlers();
+        canvas.addEventListener('click', handleCanvasClickForText, { once: true });
+        placementStatus.textContent = 'Click on the board to place text.';
+    } else {
+        textBtn.classList.remove('active');
+        enablePointerHandlers();
+        placementStatus.textContent = '';
+    }
+    redrawCanvas();
+};
+uploadImageBtn.onclick = () => {
+    const file = imageInput.files[0];
+    if (!file || !socket || socket.readyState !== WebSocket.OPEN) {
+        placementStatus.textContent = 'Select an image and connect first.';
+        return;
+    }
+    disableTools();
+    removeActiveTextInput();
+    selectedImage = null;
+    selectedText = null;
+    redrawCanvas();
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const dataUrl = event.target.result;
+        const newImage = {
+            id: Date.now(),
+            dataUrl: dataUrl,
+            x: canvas.width / 2 - DEFAULT_IMAGE_WIDTH / 2,
+            y: canvas.height / 2 - DEFAULT_IMAGE_HEIGHT / 2,
+            width: DEFAULT_IMAGE_WIDTH,
+            height: DEFAULT_IMAGE_HEIGHT,
+            imageObj: new Image()
+        };
+        newImage.imageObj.onload = () => {
+            placedImages.push(newImage);
+            selectedImage = newImage;
+            redrawCanvas();
+            socket.send(JSON.stringify({
+                type: 'image_update',
+                id: newImage.id,
+                dataUrl: newImage.dataUrl,
+                x: newImage.x,
+                y: newImage.y,
+                width: newImage.width,
+                height: newImage.height
+            }));
+        };
+        newImage.imageObj.src = dataUrl;
+        imageInput.value = '';
+        placementStatus.textContent = 'Image placed. Double-click to move/resize.';
+    };
+    reader.readAsDataURL(file);
+};
+window.addEventListener('beforeunload',()=>{if(socket&&socket.readyState===WebSocket.OPEN)socket.close();});
+</script>
+</body>
+</html>
